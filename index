@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tower Zone: Chase & Survive (3rd Person)</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            background-color: #0d0d1f;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+
+        /* Crisp pixelated viewport rendering */
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-sizing: border-box;
+            padding: 20px;
+        }
+
+        .hud-box {
+            position: absolute;
+            background: rgba(16, 16, 32, 0.85);
+            border: 3px solid #3a3a58;
+            padding: 10px 15px;
+            color: #fff;
+            font-weight: bold;
+            font-size: 18px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        #health-hud {
+            top: 20px;
+            left: 20px;
+            width: 220px;
+        }
+
+        .bar-bg {
+            background: #221111;
+            width: 100%;
+            height: 15px;
+            margin-top: 5px;
+            border: 1px solid #552222;
+        }
+
+        #health-bar {
+            background: #00ff66;
+            width: 100%;
+            height: 100%;
+            transition: width 0.1s;
+        }
+
+        #ammo-hud {
+            top: 20px;
+            right: 20px;
+            text-align: right;
+        }
+
+        #ammo-text {
+            font-size: 24px;
+            color: #ffaa00;
+        }
+
+        #score-hud {
+            bottom: 20px;
+            left: 20px;
+            color: #00ffcc;
+            display: flex;
+            gap: 20px;
+        }
+
+        /* Classic Retro Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 45%; /* Adjusted slightly for 3rd-person offset aiming */
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 204, 0.8);
+        }
+        #crosshair::before { top: 4px; left: -5px; width: 20px; height: 2px; }
+        #crosshair::after { top: -5px; left: 4px; width: 2px; height: 20px; }
+
+        /* Game Screens */
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(5, 5, 15, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-align: center;
+        }
+
+        #instructions {
+            border: 4px dashed #ffaa00;
+            padding: 30px;
+            background: rgba(20, 20, 40, 0.9);
+            max-width: 500px;
+        }
+
+        #instructions h1 {
+            color: #ff3366;
+            margin-top: 0;
+            font-size: 32px;
+            text-shadow: 3px 3px #000;
+        }
+
+        .btn {
+            background: #ffaa00;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+            box-shadow: 4px 4px 0px #aa6600;
+        }
+
+        .btn:hover {
+            background: #ffbb33;
+        }
+
+        .btn:active {
+            box-shadow: 1px 1px 0px #aa6600;
+            transform: translate(3px, 3px);
+        }
+
+        .tip-text {
+            font-size: 13px;
+            color: #ffaa00;
+            margin-top: 10px;
+        }
+    </style>
+    <!-- Include Three.js via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="blocker">
+        <div id="instructions">
+            <h1>TOWER ZONE: 3RD PERSON</h1>
+            <p id="main-prompt" style="font-size:18px; color: #00ffcc;">CLICK THE BUTTON TO START</p>
+            <p style="color: #bbb; text-align: left; line-height: 1.5; font-size: 14px;">
+                • Move: <b>W, A, S, D</b><br>
+                • Jump: <b>SPACEBAR</b><br>
+                • Climb: Walk into <b>YELLOW LADDERS</b> and hold <b>W</b> / <b>S</b><br>
+                • Dismount: Press <b>A / D</b> (strafe) or <b>SPACEBAR</b> to hop off<br>
+                • Look: <b>MOUSE</b> (Higher sensitivity! Can look straight down!)<br>
+                • Shoot: <b>LEFT CLICK</b> (5x Sniper Range!)
+            </p>
+            <p class="tip-text">Tip: Slide smoothly against walls! Climb up towers to easily snipe zombies from a safe distance.</p>
+            <button id="action-btn" class="btn">START GAME</button>
+        </div>
+    </div>
+
+    <div id="ui-container">
+        <div id="health-hud" class="hud-box">
+            HP (AUTO-REGEN)
+            <div class="bar-bg"><div id="health-bar"></div></div>
+        </div>
+        <div id="ammo-hud" class="hud-box">
+            AMMO<br>
+            <span id="ammo-text">30 / ∞</span>
+        </div>
+        <div id="score-hud" class="hud-box">
+            <div>ZOMBIES DOWN: <span id="score-val">0</span></div>
+            <div style="color: #ffaa00;">BEST: <span id="high-score-val">0</span></div>
+        </div>
+        <div id="crosshair"></div>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        let scene, camera, renderer, clock;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, jumpPressed = false;
+        let velocity = new THREE.Vector3();
+        let direction = new THREE.Vector3();
+        
+        // Gameplay Variables
+        let health = 100;
+        let ammo = 30;
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('tower_zone_highscore')) || 0;
+        let isDead = false;
+        let canShoot = true;
+        let lastDamageTime = 0;
+        let spawnInterval;
+
+        // Arrays to track game assets
+        let zombies = [];
+        let bullets = [];
+        let climbableTowers = []; 
+        let ladderBboxes = []; 
+        let spawnNodes = []; 
+        let beaconLights = []; // To animate flashing skyscraper beacon lights
+
+        // Physical state properties
+        let isGrounded = true;
+        let isClimbing = false;
+        const GRAVITY = 35.0;
+        const JUMP_FORCE = 16.0;
+        const PLAYER_SPEED = 42.0; // Responsive speed
+        const ZOMBIE_SPEED = 3.8; 
+        const ARENA_SIZE = 60; 
+
+        // Player & Body representation meshes
+        let playerContainer = new THREE.Object3D();
+        let playerBodyGroup = new THREE.Group();
+        let gunMesh;
+
+        const blocker = document.getElementById('blocker');
+        const instructions = document.getElementById('instructions');
+        const actionBtn = document.getElementById('action-btn');
+        const mainPrompt = document.getElementById('main-prompt');
+
+        // Initial score setups
+        document.getElementById('high-score-val').innerText = highScore;
+
+        actionBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isDead) {
+                resetGame();
+            } else {
+                document.body.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === document.body) {
+                blocker.style.display = 'none';
+            } else {
+                blocker.style.display = 'flex';
+                if (isDead) {
+                    instructions.querySelector('h1').innerText = "GAME OVER";
+                    instructions.querySelector('h1').style.color = "#ff3333";
+                    mainPrompt.innerText = "The zone has claimed you.";
+                    mainPrompt.style.color = "#ff8888";
+                    actionBtn.innerText = "TRY AGAIN";
+                } else {
+                    instructions.querySelector('h1').innerText = "PAUSED";
+                    instructions.querySelector('h1').style.color = "#ffaa00";
+                    mainPrompt.innerText = "CLICK BUTTON TO CONTINUE";
+                    actionBtn.innerText = "RESUME";
+                }
+            }
+        });
+
+        // Camera Look System
+        document.addEventListener('mousemove', (event) => {
+            if (document.pointerLockElement !== document.body) return;
+            // Increased mouse sensitivity slightly (from 0.0022 to 0.0035)
+            playerContainer.rotation.y -= event.movementX * 0.0035;
+            
+            // Pitch the camera mount
+            camera.rotation.x -= event.movementY * 0.0035;
+            // Allowed looking much further down (clamped at -Math.PI / 2.1 to look almost straight down)
+            camera.rotation.x = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 4, camera.rotation.x));
+        });
+
+        // Key Controls
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': jumpPressed = true; break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+                case 'Space': jumpPressed = false; break;
+            }
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement !== document.body || !canShoot || isDead) return;
+            shootWeapon();
+        });
+
+        // Start Everything
+        init();
+        animate();
+
+        function init() {
+            clock = new THREE.Clock();
+            scene = new THREE.Scene();
+            
+            scene.background = new THREE.Color(0x110e24);
+            scene.fog = new THREE.FogExp2(0x181530, 0.015);
+
+            // Camera Setup - Chase positioning for Over-The-Shoulder Third Person
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            playerContainer.add(camera);
+            
+            // Placed offset to the right slightly less (0.8 units instead of 1.4) and more up (3.4 units instead of 2.6)
+            camera.position.set(0.8, 3.4, 4.0); 
+            // Angled downwards slightly more to reflect the elevated height
+            camera.rotation.set(-0.22, -0.09, 0); 
+            
+            playerContainer.position.set(0, 0.5, 0);
+            scene.add(playerContainer);
+
+            // Build Player Physical Body Meshes inside playerContainer
+            buildPlayerBody();
+
+            // Low-res, crisp-edged pixel rendering
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth / 1.5, window.innerHeight / 1.5, false);
+            renderer.domElement.style.width = '100%';
+            renderer.domElement.style.height = '100%';
+            document.body.appendChild(renderer.domElement);
+
+            // Brightened scene illumination
+            let ambientLight = new THREE.AmbientLight(0x504080, 2.8);
+            scene.add(ambientLight);
+
+            let directionalLight = new THREE.DirectionalLight(0xffb066, 2.0);
+            directionalLight.position.set(20, 50, -10);
+            scene.add(directionalLight);
+
+            // Environment Builder
+            buildEnvironment();
+
+            // Initial Wave
+            startSpawning();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // --- Build Visible Player Mesh Avatar ---
+        function buildPlayerBody() {
+            // Legs
+            let legMat = new THREE.MeshStandardMaterial({ color: 0x1b2d42, roughness: 0.8 });
+            let legGeo = new THREE.BoxGeometry(0.3, 0.9, 0.3);
+            
+            let leftLeg = new THREE.Mesh(legGeo, legMat);
+            leftLeg.position.set(-0.25, 0.45, 0);
+            playerBodyGroup.add(leftLeg);
+
+            let rightLeg = new THREE.Mesh(legGeo, legMat);
+            rightLeg.position.set(0.25, 0.45, 0);
+            playerBodyGroup.add(rightLeg);
+
+            // Torso (Soldier Armor)
+            let armorMat = new THREE.MeshStandardMaterial({ color: 0x224422, roughness: 0.7 });
+            let torsoGeo = new THREE.BoxGeometry(0.8, 1.0, 0.5);
+            let torso = new THREE.Mesh(torsoGeo, armorMat);
+            torso.position.set(0, 1.4, 0);
+            playerBodyGroup.add(torso);
+
+            // Head (Visible in third person)
+            let skinMat = new THREE.MeshStandardMaterial({ color: 0xe0a080, roughness: 0.8 });
+            let headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            let head = new THREE.Mesh(headGeo, skinMat);
+            head.position.set(0, 2.15, 0);
+            playerBodyGroup.add(head);
+
+            // Helmet
+            let helmetMat = new THREE.MeshStandardMaterial({ color: 0x152b15, roughness: 0.6 });
+            let helmetGeo = new THREE.BoxGeometry(0.56, 0.25, 0.56);
+            let helmet = new THREE.Mesh(helmetGeo, helmetMat);
+            helmet.position.set(0, 2.35, 0);
+            playerBodyGroup.add(helmet);
+
+            // Backpack
+            let packMat = new THREE.MeshStandardMaterial({ color: 0x152b15 });
+            let packGeo = new THREE.BoxGeometry(0.7, 0.8, 0.3);
+            let pack = new THREE.Mesh(packGeo, packMat);
+            pack.position.set(0, 1.4, -0.4);
+            playerBodyGroup.add(pack);
+
+            // Weapon (held in forward firing position)
+            let rifleMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8 });
+            gunMesh = new THREE.Group();
+
+            let barrelGeo = new THREE.BoxGeometry(0.12, 0.12, 1.3);
+            let barrel = new THREE.Mesh(barrelGeo, rifleMat);
+            barrel.position.set(0, 0, -0.5);
+            gunMesh.add(barrel);
+
+            let receiverGeo = new THREE.BoxGeometry(0.18, 0.25, 0.6);
+            let receiver = new THREE.Mesh(receiverGeo, rifleMat);
+            receiver.position.set(0, -0.05, -0.1);
+            gunMesh.add(receiver);
+
+            // Position gun extending forward from the right side of the body
+            gunMesh.position.set(0.45, 1.25, -0.4);
+            playerBodyGroup.add(gunMesh);
+
+            playerContainer.add(playerBodyGroup);
+        }
+
+        // --- Build Environment, Platforms, & Climbable Towers ---
+        function buildEnvironment() {
+            // Main Rooftop Arena Grid
+            let floorGeo = new THREE.BoxGeometry(ARENA_SIZE, 1, ARENA_SIZE);
+            let floorMat = new THREE.MeshStandardMaterial({ color: 0x1e1e2d, roughness: 0.9 });
+            let floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.position.y = -0.5;
+            scene.add(floor);
+
+            // Safety Guard Rails
+            let railGeo = new THREE.BoxGeometry(ARENA_SIZE, 0.8, 0.8);
+            let railMat = new THREE.MeshBasicMaterial({ color: 0x3a3a58 });
+            
+            let nRail = new THREE.Mesh(railGeo, railMat); nRail.position.set(0, 0.4, -ARENA_SIZE/2); scene.add(nRail);
+            let sRail = new THREE.Mesh(railGeo, railMat); sRail.position.set(0, 0.4, ARENA_SIZE/2); scene.add(sRail);
+
+            // Create Tower spawn nodes at corners/sides of arena
+            let towerCoords = [
+                {x: -20, z: -20, w: 8, d: 8, h: 16},
+                {x: 20, z: -20, w: 10, d: 10, h: 22},
+                {x: -18, z: 18, w: 9, d: 9, h: 26},
+                {x: 20, z: 18, w: 8, d: 8, h: 14}
+            ];
+
+            // Build climbable towers on the play platform
+            towerCoords.forEach((coord, index) => {
+                let tGeo = new THREE.BoxGeometry(coord.w, coord.h, coord.d);
+                let tMat = new THREE.MeshStandardMaterial({ color: 0x1f1f33, roughness: 0.7, metalness: 0.2 });
+                let tower = new THREE.Mesh(tGeo, tMat);
+                tower.position.set(coord.x, coord.h / 2, coord.z);
+                scene.add(tower);
+                climbableTowers.push(tower);
+                spawnNodes.push(new THREE.Vector3(coord.x, coord.h, coord.z));
+
+                // Add procedural Skyscraper windows on all 4 faces
+                let windowColor = index % 2 === 0 ? 0xffbb33 : 0x00ffdd;
+                let winMat = new THREE.MeshBasicMaterial({ color: windowColor });
+                let winGeo = new THREE.BoxGeometry(0.3, 0.5, 0.05);
+
+                // Distribute windows evenly down the height of the skyscraper
+                let floors = Math.floor(coord.h / 2.5);
+                for (let f = 1; f < floors; f++) {
+                    let yPos = f * 2.5 - (coord.h / 2);
+                    // Skip bottom floors near main platform
+                    if (yPos + (coord.h / 2) < 2) continue;
+
+                    // North and South faces windows
+                    let columns = Math.floor(coord.w / 2.2);
+                    for (let c = 0; c < columns; c++) {
+                        let xPos = (c - (columns - 1) / 2) * 1.8;
+                        
+                        // North Face
+                        let winN = new THREE.Mesh(winGeo, winMat);
+                        winN.position.set(xPos, yPos, -coord.d / 2 - 0.01);
+                        tower.add(winN);
+
+                        // South Face (avoid blocking the ladder path directly)
+                        if (Math.abs(xPos) > 1.0) {
+                            let winS = new THREE.Mesh(winGeo, winMat);
+                            winS.position.set(xPos, yPos, coord.d / 2 + 0.01);
+                            tower.add(winS);
+                        }
+                    }
+
+                    // East and West faces windows
+                    let rowD = Math.floor(coord.d / 2.2);
+                    for (let c = 0; c < rowD; c++) {
+                        let zPos = (c - (rowD - 1) / 2) * 1.8;
+                        
+                        // East Face
+                        let winE = new THREE.Mesh(winGeo, winMat);
+                        winE.rotation.y = Math.PI / 2;
+                        winE.position.set(coord.w / 2 + 0.01, yPos, zPos);
+                        tower.add(winE);
+
+                        // West Face
+                        let winW = new THREE.Mesh(winGeo, winMat);
+                        winW.rotation.y = Math.PI / 2;
+                        winW.position.set(-coord.w / 2 - 0.01, yPos, zPos);
+                        tower.add(winW);
+                    }
+                }
+
+                // Add rooftop decorative architectural band
+                let bandGeo = new THREE.BoxGeometry(coord.w + 0.15, 0.8, coord.d + 0.15);
+                let bandMat = new THREE.MeshStandardMaterial({ color: 0x3d3d5c, metalness: 0.5 });
+                let band = new THREE.Mesh(bandGeo, bandMat);
+                band.position.set(0, (coord.h / 2) - 0.4, 0);
+                tower.add(band);
+
+                // Add a rooftop structural Antenna!
+                let antennaGeo = new THREE.BoxGeometry(0.15, 4.0, 0.15);
+                let antennaMat = new THREE.MeshStandardMaterial({ color: 0x555577, metalness: 0.9 });
+                let antenna = new THREE.Mesh(antennaGeo, antennaMat);
+                antenna.position.set(0, (coord.h / 2) + 2.0, 0);
+                tower.add(antenna);
+
+                // Pulsing red navigation beacon light at antenna tip
+                let beaconGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+                let beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                let beacon = new THREE.Mesh(beaconGeo, beaconMat);
+                beacon.position.set(0, (coord.h / 2) + 4.15, 0);
+                tower.add(beacon);
+                beaconLights.push(beacon);
+
+                // Attach yellow vertical ladders on one side of each climbable tower
+                let lHeight = coord.h;
+                let ladderGroup = new THREE.Group();
+                let ladderRailsMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+
+                // Two vertical side bars
+                let sideRailGeo = new THREE.BoxGeometry(0.1, lHeight, 0.1);
+                let railL = new THREE.Mesh(sideRailGeo, ladderRailsMat); railL.position.x = -0.6;
+                let railR = new THREE.Mesh(sideRailGeo, ladderRailsMat); railR.position.x = 0.6;
+                ladderGroup.add(railL, railR);
+
+                // Horizontal ladder rungs spaced out vertically
+                let rungGeo = new THREE.BoxGeometry(1.2, 0.08, 0.08);
+                let rungSpacing = 1.2;
+                for (let rY = 0.5; rY < lHeight; rY += rungSpacing) {
+                    let rung = new THREE.Mesh(rungGeo, ladderRailsMat);
+                    rung.position.set(0, rY - (lHeight / 2), 0.05);
+                    ladderGroup.add(rung);
+                }
+
+                // Place ladder on south-facing side of the tower (+z side of structure)
+                ladderGroup.position.set(0, 0, coord.d / 2 + 0.1);
+                tower.add(ladderGroup);
+
+                // --- ROBUST MATHEMATICAL LADDER BOX ---
+                // Manually builds precise world trigger zones aligned perfectly with player collision offsets
+                let ladderMin = new THREE.Vector3(
+                    coord.x - 1.2,
+                    0,
+                    coord.z + coord.d / 2 - 0.5 // slightly inside wall bounds
+                );
+                let ladderMax = new THREE.Vector3(
+                    coord.x + 1.2,
+                    coord.h + 0.3, // head allowance triggers safe snapping at very top of tower
+                    coord.z + coord.d / 2 + 1.8 // deep trigger area so wall pushback won't eject player
+                );
+                let manualBox = new THREE.Box3(ladderMin, ladderMax);
+
+                ladderBboxes.push({
+                    box: manualBox,
+                    ladderTop: coord.h
+                });
+            });
+
+            // Distant City Background Towers (Unclimbable Tiered Skyscrapers)
+            for (let i = 0; i < 75; i++) {
+                let height = Math.random() * 110 + 50;
+                let width = Math.random() * 14 + 10;
+                
+                // Tiered architectural structure: Base, mid-section, antenna
+                let bgTGroup = new THREE.Group();
+
+                // Base block
+                let baseGeo = new THREE.BoxGeometry(width, height * 0.7, width);
+                let bgTMat = new THREE.MeshStandardMaterial({ color: 0x09091b, roughness: 0.6, metalness: 0.1 });
+                let base = new THREE.Mesh(baseGeo, bgTMat);
+                base.position.y = (height * 0.7) / 2;
+                bgTGroup.add(base);
+
+                // Top tier block (slender offset)
+                let topW = width * 0.7;
+                let topH = height * 0.3;
+                let topGeo = new THREE.BoxGeometry(topW, topH, topW);
+                let topPart = new THREE.Mesh(topGeo, bgTMat);
+                topPart.position.y = (height * 0.7) + (topH / 2);
+                bgTGroup.add(topPart);
+
+                // Spire/Antenna
+                let spireGeo = new THREE.BoxGeometry(0.2, 8.0, 0.2);
+                let spireMat = new THREE.MeshStandardMaterial({ color: 0x22223a });
+                let spire = new THREE.Mesh(spireGeo, spireMat);
+                spire.position.y = height + 4.0;
+                bgTGroup.add(spire);
+
+                // Beacon bulb on distant spire
+                let distBeaconGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+                let distBeaconMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+                let distBeacon = new THREE.Mesh(distBeaconGeo, distBeaconMat);
+                distBeacon.position.y = height + 8.1;
+                bgTGroup.add(distBeacon);
+                beaconLights.push(distBeacon);
+
+                // Windows running vertically down the background skyscraper
+                let bWinGeo = new THREE.BoxGeometry(0.4, 1.2, 0.1);
+                let bWinMat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0x00ccff : 0xff5577 });
+                
+                let numFloors = Math.floor((height * 0.7) / 6);
+                for (let f = 0; f < numFloors; f++) {
+                    let winY = f * 6 + 4;
+                    // Add window indicators on outward facing side
+                    let leftWin = new THREE.Mesh(bWinGeo, bWinMat);
+                    leftWin.position.set(-width / 4, winY, width / 2 + 0.1);
+                    bgTGroup.add(leftWin);
+
+                    let rightWin = new THREE.Mesh(bWinGeo, bWinMat);
+                    rightWin.position.set(width / 4, winY, width / 2 + 0.1);
+                    bgTGroup.add(rightWin);
+                }
+
+                let angle = Math.random() * Math.PI * 2;
+                let distance = Math.random() * 150 + 48;
+                bgTGroup.position.set(Math.cos(angle) * distance, -20, Math.sin(angle) * distance);
+
+                scene.add(bgTGroup);
+            }
+        }
+
+        // --- Weapon Shoot Execution & Animation ---
+        function shootWeapon() {
+            canShoot = false;
+            ammo--;
+            document.getElementById('ammo-text').innerText = `${ammo} / ∞`;
+
+            // Flash effect
+            let lightFlash = new THREE.PointLight(0xffff55, 4, 15);
+            lightFlash.position.copy(playerContainer.position).y += 1.8;
+            scene.add(lightFlash);
+            setTimeout(() => scene.remove(lightFlash), 50);
+
+            // Rebounding gun mesh kickback animation
+            gunMesh.position.z += 0.2;
+
+            // Spawn projectile
+            let bulletGeo = new THREE.BoxGeometry(0.2, 0.2, 0.6);
+            let bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff33 });
+            let bullet = new THREE.Mesh(bulletGeo, bulletMat);
+
+            // Position bullet close to body's gun muzzle position
+            bullet.position.copy(playerContainer.position);
+            bullet.position.y += 1.3; 
+
+            // Fire outward directly along camera look vector
+            let dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            bullet.lookAt(bullet.position.clone().add(dir));
+
+            bullet.userData = { trajectory: dir, aliveTime: 0 };
+            bullets.push(bullet);
+            scene.add(bullet);
+
+            // Return gun animation back to rest state
+            setTimeout(() => {
+                gunMesh.position.set(0.45, 1.25, -0.4);
+            }, 100);
+
+            // Reload configurations
+            setTimeout(() => {
+                if (ammo <= 0) {
+                    document.getElementById('ammo-text').innerText = 'RELOADING...';
+                    setTimeout(() => { 
+                        ammo = 30; 
+                        document.getElementById('ammo-text').innerText = `${ammo} / ∞`; 
+                        canShoot = true; 
+                    }, 1000); 
+                } else {
+                    canShoot = true;
+                }
+            }, 150);
+        }
+
+        // --- Enemy Spawn & Mechanics ---
+        function spawnZombie() {
+            let zombieGroup = new THREE.Group();
+
+            let torsoGeo = new THREE.BoxGeometry(1.3, 1.8, 0.7);
+            let torsoMat = new THREE.MeshStandardMaterial({ color: 0x3d663d });
+            let torso = new THREE.Mesh(torsoGeo, torsoMat);
+            torso.position.y = 1.4;
+            zombieGroup.add(torso);
+
+            let headGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+            let headMat = new THREE.MeshStandardMaterial({ color: 0x5a8a5a });
+            let head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 2.75;
+            zombieGroup.add(head);
+
+            // Red glowing retro eyes
+            let eyeGeo = new THREE.BoxGeometry(0.18, 0.08, 0.08);
+            let eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            let lEye = new THREE.Mesh(eyeGeo, eyeMat); lEye.position.set(-0.2, 2.85, 0.46);
+            let rEye = new THREE.Mesh(eyeGeo, eyeMat); rEye.position.set(0.2, 2.85, 0.46);
+            zombieGroup.add(lEye, rEye);
+
+            // --- 3D Billboarded Zombie Health Bar ---
+            let healthBarGroup = new THREE.Group();
+            
+            let barBgGeo = new THREE.BoxGeometry(1.2, 0.15, 0.05);
+            let barBgMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+            let barBg = new THREE.Mesh(barBgGeo, barBgMat);
+            healthBarGroup.add(barBg);
+            
+            let barFillGeo = new THREE.BoxGeometry(1.2, 0.15, 0.06);
+            let barFillMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            let barFill = new THREE.Mesh(barFillGeo, barFillMat);
+            barFill.position.z = 0.01; 
+            healthBarGroup.add(barFill);
+            
+            healthBarGroup.position.set(0, 3.6, 0);
+            zombieGroup.add(healthBarGroup);
+
+            // Spawn directly at one of the tower bases
+            let node = spawnNodes[Math.floor(Math.random() * spawnNodes.length)];
+            zombieGroup.position.set(node.x, 0.1, node.z);
+
+            // Playability Settings: 3-Tap instead of 1-tap!
+            zombieGroup.userData = { 
+                health: 3, 
+                maxHealth: 3,
+                healthBarFill: barFill,
+                healthBarGroup: healthBarGroup
+            }; 
+            zombies.push(zombieGroup);
+            scene.add(zombieGroup);
+        }
+
+        // Spawn interval optimized for easier pace (4.5s)
+        function startSpawning() {
+            for (let i = 0; i < 2; i++) { spawnZombie(); } // Initial start count
+            spawnInterval = setInterval(() => {
+                if (!isDead && zombies.length < 8 && document.pointerLockElement === document.body) {
+                    spawnZombie();
+                }
+            }, 4500);
+        }
+
+        // --- Game Restart Routine ---
+        function resetGame() {
+            zombies.forEach(z => scene.remove(z));
+            zombies = [];
+
+            bullets.forEach(b => scene.remove(b));
+            bullets = [];
+
+            health = 100;
+            ammo = 30;
+            score = 0;
+            isDead = false;
+            canShoot = true;
+
+            document.getElementById('health-bar').style.width = '100%';
+            document.getElementById('ammo-text').innerText = '30 / ∞';
+            document.getElementById('score-val').innerText = '0';
+
+            playerContainer.position.set(0, 0.5, 0);
+            playerContainer.rotation.set(0, 0, 0);
+            camera.rotation.set(-0.22, -0.09, 0);
+
+            clearInterval(spawnInterval);
+            startSpawning();
+
+            document.body.requestPointerLock();
+        }
+
+        // --- Game Engine Frame Cycles ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            let delta = clock.getDelta();
+            let elapsedTime = clock.getElapsedTime();
+
+            // Animate flashing skyscraper beacon lights
+            let beaconScale = Math.sin(elapsedTime * 8) > 0 ? 1 : 0.2;
+            beaconLights.forEach(beacon => {
+                beacon.scale.set(beaconScale, beaconScale, beaconScale);
+            });
+
+            if (document.pointerLockElement === document.body && !isDead) {
+
+                // 1. Slow Passive Health Regeneration
+                if (Date.now() - lastDamageTime > 3000 && health < 100) {
+                    health = Math.min(100, health + 18 * delta);
+                    document.getElementById('health-bar').style.width = Math.ceil(health) + '%';
+                }
+
+                // 2. Ladder Climb Verification Trigger Checks
+                isClimbing = false;
+                let playerFeetPos = playerContainer.position.clone();
+                
+                for (let i = 0; i < ladderBboxes.length; i++) {
+                    let ladderInfo = ladderBboxes[i];
+                    if (ladderInfo.box.containsPoint(playerFeetPos)) {
+                        isClimbing = true;
+                        break;
+                    }
+                }
+
+                // 3. Movement and Physics Updates
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveBackward) - Number(moveForward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                // Lock horizontal translation vectors while climbing to avoid shaking out of ladder detection
+                if (isClimbing) {
+                    direction.z = 0; // Disable W/S from moving player forward/backward horizontally
+                    velocity.z = 0;
+                }
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * PLAYER_SPEED * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * PLAYER_SPEED * delta;
+
+                playerContainer.translateX(-velocity.x * delta);
+                playerContainer.translateZ(-velocity.z * delta);
+
+                // Handle Ladder Climbing Vertical Speed Control
+                if (isClimbing) {
+                    velocity.y = 0; 
+                    if (moveForward) {
+                        playerContainer.position.y += 12 * delta; // Faster, smooth vertical climb
+                    } else if (moveBackward) {
+                        playerContainer.position.y -= 12 * delta; 
+                    }
+                } else {
+                    velocity.y -= GRAVITY * delta;
+                    playerContainer.position.y += velocity.y * delta;
+                }
+
+                // 4. Platform and Tower Roof Collision Landings / Horizontal Push (Prevent Morphing)
+                let currentGroundHeight = 0.5; 
+                let playerRadius = 0.6; // Approximated player radius boundary
+
+                climbableTowers.forEach(tower => {
+                    let distX = Math.abs(playerContainer.position.x - tower.position.x);
+                    let distZ = Math.abs(playerContainer.position.z - tower.position.z);
+                    let halfW = tower.geometry.parameters.width / 2;
+                    let halfD = tower.geometry.parameters.depth / 2;
+                    let topOfTower = tower.geometry.parameters.height;
+
+                    // Check horizontal intersection footprint
+                    if (distX < halfW + playerRadius && distZ < halfD + playerRadius) {
+                        // If player is falling from above or already on the roof
+                        if (playerContainer.position.y >= topOfTower - 0.2) {
+                            currentGroundHeight = topOfTower + 0.5; 
+                        } else {
+                            // SOLID WALL COLLISION (Pushback sliding physics - No morphing through buildings!)
+                            let overlapX = (halfW + playerRadius) - distX;
+                            let overlapZ = (halfD + playerRadius) - distZ;
+
+                            if (overlapX < overlapZ) {
+                                // Push back along X axis
+                                playerContainer.position.x += Math.sign(playerContainer.position.x - tower.position.x) * overlapX;
+                            } else {
+                                // Push back along Z axis
+                                playerContainer.position.z += Math.sign(playerContainer.position.z - tower.position.z) * overlapZ;
+                            }
+                        }
+                    }
+                });
+
+                if (playerContainer.position.y <= currentGroundHeight) {
+                    velocity.y = 0;
+                    playerContainer.position.y = currentGroundHeight;
+                    isGrounded = true;
+                } else {
+                    isGrounded = false;
+                }
+
+                if (jumpPressed && (isGrounded || isClimbing)) {
+                    velocity.y = JUMP_FORCE;
+                    isGrounded = false;
+                    isClimbing = false; // Leaps off ladder cleanly
+                }
+
+                // Arena Boundary constraints
+                playerContainer.position.x = Math.max(-ARENA_SIZE/2+1, Math.min(ARENA_SIZE/2-1, playerContainer.position.x));
+                playerContainer.position.z = Math.max(-ARENA_SIZE/2+1, Math.min(ARENA_SIZE/2-1, playerContainer.position.z));
+
+                // 5. Projectile Flight Logic (Sniper range extended up to 25.0 seconds!)
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    let b = bullets[i];
+                    b.position.addScaledVector(b.userData.trajectory, 120 * delta);
+                    b.userData.aliveTime += delta;
+
+                    let hitTarget = false;
+
+                    for (let j = zombies.length - 1; j >= 0; j--) {
+                        let z = zombies[j];
+                        let dist = b.position.distanceTo(z.position.clone().add(new THREE.Vector3(0, 1.4, 0)));
+                        if (dist < 1.4) {
+                            z.userData.health--;
+                            hitTarget = true;
+                            scene.remove(b);
+                            bullets.splice(i, 1);
+                            
+                            // Flash zombie red on hit
+                            z.children.forEach(mesh => { if(mesh.material && mesh !== z.userData.healthBarGroup) mesh.material.color.setHex(0xff3333); });
+                            
+                            // Update Floating 3D Health Bar
+                            if (z.userData.healthBarFill) {
+                                let ratio = Math.max(0, z.userData.health / z.userData.maxHealth);
+                                z.userData.healthBarFill.scale.x = ratio;
+                            }
+
+                            setTimeout(() => {
+                                if (z && z.children[0]) z.children[0].material.color.setHex(0x3d663d);
+                            }, 70);
+
+                            if (z.userData.health <= 0) {
+                                scene.remove(z);
+                                zombies.splice(j, 1);
+                                score++;
+                                document.getElementById('score-val').innerText = score;
+
+                                // High Score updates
+                                if (score > highScore) {
+                                    highScore = score;
+                                    localStorage.setItem('tower_zone_highscore', highScore);
+                                    document.getElementById('high-score-val').innerText = highScore;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (hitTarget) break;
+
+                    // Bullet range capability extended 5x (from 5.0s to 25.0s)
+                    if (b.userData.aliveTime > 25.0) {
+                        scene.remove(b);
+                        bullets.splice(i, 1);
+                    }
+                }
+
+                // 6. Enemy Tracking AI
+                for (let i = 0; i < zombies.length; i++) {
+                    let z = zombies[i];
+                    
+                    let targetPos = playerContainer.position.clone();
+                    z.lookAt(new THREE.Vector3(targetPos.x, z.position.y, targetPos.z));
+
+                    let moveDir = new THREE.Vector3().subVectors(targetPos, z.position).normalize();
+                    z.position.addScaledVector(moveDir, ZOMBIE_SPEED * delta);
+
+                    // Billboard Zombie Health Bar to face camera view
+                    if (z.userData.healthBarGroup) {
+                        z.userData.healthBarGroup.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+                    }
+
+                    // Vertical climbing logic for zombies underneath towers
+                    if (Math.abs(z.position.x - playerContainer.position.x) < 4 && Math.abs(z.position.z - playerContainer.position.z) < 4) {
+                        if (z.position.y < playerContainer.position.y - 0.5) {
+                            z.position.y += 6 * delta; 
+                        }
+                    } else {
+                        if (z.position.y > 0.1) {
+                            z.position.y = Math.max(0.1, z.position.y - 8 * delta);
+                        }
+                    }
+
+                    // Attack logic
+                    let distanceToPlayer = z.position.distanceTo(playerContainer.position);
+                    if (distanceToPlayer < 1.9) {
+                        health -= 12 * delta; 
+                        lastDamageTime = Date.now();
+                        document.getElementById('health-bar').style.width = Math.max(0, health) + '%';
+                        
+                        if (health <= 0 && !isDead) {
+                            isDead = true;
+                            document.exitPointerLock();
+                        }
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth / 1.5, window.innerHeight / 1.5, false);
+        }
+    </script>
+</body>
+</html>
